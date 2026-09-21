@@ -18,6 +18,28 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
+async function generateWithRetry(request, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await ai.models.generateContent(request);
+    } catch (error) {
+      const status = error.status;
+
+      if (status !== 503 || attempt === maxRetries) {
+        throw error;
+      }
+
+      const delay = 1000 * Math.pow(2, attempt);
+
+      console.log(
+        `Gemini temporarily unavailable. Retrying in ${delay / 1000}s...`
+      );
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 app.get('/', (req, res) => {
   res.json({
     message: 'Dead Stock Exchange backend is running!',
@@ -38,7 +60,7 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
 
     const imageData = fs.readFileSync(req.file.path).toString('base64');
 
-    const response = await ai.models.generateContent({
+    const response = await generateWithRetry({
       model: 'gemini-3.8-flash',
 
       contents: [
@@ -100,6 +122,95 @@ Rules:
 
     res.status(500).json({
       error: 'AI analysis failed',
+      details: error.message,
+    });
+  }
+});
+
+app.post('/voice-analyze', upload.single('audio'), async (req, res) => {
+  console.log('Audio received:', req.file?.originalname);
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No audio received',
+      });
+    }
+
+    console.log('Sending audio to Gemini...');
+
+    const audioData = fs
+      .readFileSync(req.file.path)
+      .toString('base64');
+
+    const response = await generateWithRetry({
+      model: 'gemini-3.8-flash',
+
+      contents: [
+        {
+          inlineData: {
+            mimeType: req.file.mimetype,
+            data: audioData,
+          },
+        },
+        {
+          text: `
+You are extracting stock information from a seller's voice recording.
+
+The seller may speak naturally and may mention:
+- quantity
+- original price per unit
+- selling price per unit
+- how long the stock has been sitting
+
+Extract these four fields.
+
+Return ONLY valid JSON in exactly this format:
+
+{
+  "quantity": "",
+  "originalPrice": "",
+  "sellingPrice": "",
+  "stockAge": ""
+}
+
+Rules:
+- quantity should contain only the number of units.
+- originalPrice should contain only the number.
+- sellingPrice should contain only the number.
+- stockAge should be a short phrase such as "6 months", "2 years", or "3 weeks".
+- If a value was not mentioned, return an empty string.
+- Understand natural speech.
+- The seller may say prices in rupees, INR, or casually say things like "fifty rupees".
+- Do not include markdown.
+- Do not include explanations.
+          `,
+        },
+      ],
+    });
+
+    console.log('Gemini voice response:', response.text);
+
+    let result;
+
+    try {
+      result = JSON.parse(response.text);
+    } catch (parseError) {
+      console.log('Could not parse Gemini voice JSON.');
+
+      return res.status(500).json({
+        error: 'Could not understand voice response',
+      });
+    }
+
+    res.json(result);
+
+    fs.unlink(req.file.path, () => {});
+  } catch (error) {
+    console.error('Voice Gemini error:', error);
+
+    res.status(500).json({
+      error: 'Voice analysis failed',
       details: error.message,
     });
   }

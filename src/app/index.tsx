@@ -14,12 +14,15 @@ import {
   Alert,
   Button,
   Image,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 type ProductResult = {
   product: string;
@@ -50,6 +53,7 @@ export default function HomeScreen() {
 
   const [product, setProduct] =
     useState<ProductResult | null>(null);
+  const [editingProduct, setEditingProduct] = useState(false);
 
   const [quantity, setQuantity] = useState('1');
   const [originalPrice, setOriginalPrice] = useState('');
@@ -62,21 +66,24 @@ export default function HomeScreen() {
    * START VOICE RECORDING
    */
   const startRecording = async () => {
+    console.log('START RECORDING BUTTON PRESSED');
     try {
       const permission =
         await requestRecordingPermissionsAsync();
+        console.log('MIC PERMISSION:', permission);
 
       if (!permission.granted) {
         Alert.alert(
           'Microphone Permission',
-          'Please allow microphone access in your iPhone settings.'
+          'Please allow microphone access in your Phone settings.'
         );
         return;
       }
 
       await setAudioModeAsync({
-        playsInSilentMode: true,
-        allowsRecording: true,
+      playsInSilentMode: true,
+      allowsRecording: true,
+      interruptionMode: 'doNotMix',
       });
 
       await audioRecorder.prepareToRecordAsync();
@@ -98,33 +105,74 @@ export default function HomeScreen() {
    * STOP VOICE RECORDING
    */
   const stopRecording = async () => {
-    try {
-      await audioRecorder.stop();
+  try {
+    await audioRecorder.stop();
 
-      setRecording(false);
+    setRecording(false);
 
-      console.log(
-        'Voice recording stopped'
-      );
+    const uri = audioRecorder.uri;
 
-      console.log(
-        'Recording URI:',
-        audioRecorder.uri
-      );
+    console.log('Voice recording stopped');
+    console.log('Recording URI:', uri);
 
+    if (!uri) {
       Alert.alert(
-        'Voice Recorded',
-        'Your voice recording was captured successfully.'
+        'Voice Error',
+        'No recording was found.'
       );
-    } catch (error) {
-      console.log(
-        'Recording stop error:',
-        error
-      );
-
-      setRecording(false);
+      return;
     }
-  };
+
+    setAnalyzing(true);
+
+    console.log('Sending voice recording to backend...');
+
+    const formData = new FormData();
+
+    const audioFile = new File(uri);
+    formData.append('audio', audioFile);
+
+    const response = await fetch(
+      `${API_URL}/voice-analyze`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    console.log('Voice AI result:', data);
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || 'Voice analysis failed'
+      );
+    }
+
+    setQuantity(data.quantity || '');
+    setOriginalPrice(data.originalPrice || '');
+    setSellingPrice(data.sellingPrice || '');
+    setStockAge(data.stockAge || '');
+
+    Alert.alert(
+      'Voice Details Extracted',
+      'Your stock details have been filled automatically.'
+    );
+  } catch (error) {
+    console.log(
+      'Voice analysis error:',
+      error
+    );
+
+    Alert.alert(
+      'Voice Error',
+      'Could not understand the voice recording.'
+    );
+  } finally {
+    setAnalyzing(false);
+  }
+};
 
   if (!permission) {
     return (
@@ -218,7 +266,7 @@ export default function HomeScreen() {
                 );
 
                 const response = await fetch(
-                  'http://172.20.10.2:3000/analyze',
+                  `${API_URL}/analyze`,
                   {
                     method: 'POST',
                     body: formData,
@@ -403,134 +451,204 @@ export default function HomeScreen() {
   /*
    * PRODUCT DETAILS
    */
+    /*
+   * PRODUCT DETAILS
+   */
   if (detected && product) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.detectedTitle}>
-          PRODUCT DETECTED
-        </Text>
+      <ScrollView
+        style={{ flex: 1, backgroundColor: '#0B0B0F' }}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.container}>
+          <Text style={styles.detectedTitle}>
+            PRODUCT DETECTED
+          </Text>
 
-        {photoUri && (
-          <Image
-            source={{ uri: photoUri }}
-            style={styles.detectedImage}
-          />
-        )}
+          {photoUri && (
+            <Image
+              source={{ uri: photoUri }}
+              style={styles.detectedImage}
+            />
+          )}
 
         <View style={styles.productCard}>
-          <Text style={styles.productLabel}>
-            PRODUCT
-          </Text>
+        <View style={styles.productHeader}>
+        <Text style={styles.productLabel}>
+        PRODUCT
+        </Text>
 
-          <Text style={styles.productName}>
-            {product.product}
-          </Text>
+    <TouchableOpacity
+      style={styles.editIconButton}
+      onPress={() => setEditingProduct(!editingProduct)}
+    >
+      <Text style={styles.editIcon}>
+        ✎
+      </Text>
 
-          <Text style={styles.productCategory}>
-            {product.category}
-          </Text>
+      <Text style={styles.editText}>
+        {editingProduct ? 'Done' : 'Edit'}
+      </Text>
+    </TouchableOpacity>
+  </View>
 
-          <Text style={styles.conditionText}>
-            Condition: {product.condition}
-          </Text>
+  {editingProduct ? (
+    <>
+      <TextInput
+        style={styles.productEditInput}
+        value={product.product}
+        onChangeText={(text) =>
+          setProduct({
+            ...product,
+            product: text,
+          })
+        }
+        placeholder="Product name"
+        placeholderTextColor="#666670"
+      />
 
-          <View style={styles.confidenceBox}>
-            <Text style={styles.confidenceText}>
-              AI Confidence
+      <TextInput
+        style={styles.productEditInput}
+        value={product.category}
+        onChangeText={(text) =>
+          setProduct({
+            ...product,
+            category: text,
+          })
+        }
+        placeholder="Category"
+        placeholderTextColor="#666670"
+      />
+
+      <TextInput
+        style={styles.productEditInput}
+        value={product.condition}
+        onChangeText={(text) =>
+          setProduct({
+            ...product,
+            condition: text,
+          })
+        }
+        placeholder="Condition"
+        placeholderTextColor="#666670"
+      />
+    </>
+  ) : (
+    <>
+      <Text style={styles.productName}>
+        {product.product}
+      </Text>
+
+      <Text style={styles.productCategory}>
+        {product.category}
+      </Text>
+
+      <Text style={styles.conditionText}>
+        Condition: {product.condition}
+      </Text>
+    </>
+  )}
+
+  <View style={styles.confidenceBox}>
+    <Text style={styles.confidenceText}>
+      AI Confidence
+    </Text>
+
+    <Text style={styles.confidenceValue}>
+      {product.confidence}%
+    </Text>
+  </View>
+</View>
+
+          <View style={styles.formCard}>
+            <Text style={styles.formTitle}>
+              STOCK DETAILS
             </Text>
 
-            <Text style={styles.confidenceValue}>
-              {product.confidence}%
+            <Text style={styles.inputLabel}>
+              QUANTITY
             </Text>
+
+            <TextInput
+              style={styles.input}
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="numeric"
+              placeholder="e.g. 120"
+              placeholderTextColor="#666670"
+            />
+
+            <Text style={styles.inputLabel}>
+              ORIGINAL PRICE PER UNIT
+            </Text>
+
+            <TextInput
+              style={styles.input}
+              value={originalPrice}
+              onChangeText={setOriginalPrice}
+              keyboardType="numeric"
+              placeholder="e.g. 5"
+              placeholderTextColor="#666670"
+            />
+
+            <Text style={styles.inputLabel}>
+              YOUR SELLING PRICE PER UNIT
+            </Text>
+
+            <TextInput
+              style={styles.input}
+              value={sellingPrice}
+              onChangeText={setSellingPrice}
+              keyboardType="numeric"
+              placeholder="e.g. 3"
+              placeholderTextColor="#666670"
+            />
+
+            <Text style={styles.inputLabel}>
+              HOW LONG HAS IT BEEN IN STOCK?
+            </Text>
+
+            <TextInput
+              style={styles.input}
+              value={stockAge}
+              onChangeText={setStockAge}
+              placeholder="e.g. 6 months"
+              placeholderTextColor="#666670"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.voiceButton,
+                recording && styles.voiceButtonRecording,
+              ]}
+              onPress={
+                recording
+                  ? stopRecording
+                  : startRecording
+              }
+            >
+              <Text style={styles.voiceButtonText}>
+                {recording
+                  ? '⏹ STOP RECORDING'
+                  : '🎤 SPEAK STOCK DETAILS'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => {
+                setListingCreated(true);
+              }}
+            >
+              <Text style={styles.primaryButtonText}>
+                CREATE LISTING
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
-
-        <View style={styles.formCard}>
-          <Text style={styles.formTitle}>
-            STOCK DETAILS
-          </Text>
-
-          <Text style={styles.inputLabel}>
-            QUANTITY
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="numeric"
-            placeholder="e.g. 120"
-            placeholderTextColor="#666670"
-          />
-
-          <Text style={styles.inputLabel}>
-            ORIGINAL PRICE PER UNIT
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            value={originalPrice}
-            onChangeText={setOriginalPrice}
-            keyboardType="numeric"
-            placeholder="e.g. 5"
-            placeholderTextColor="#666670"
-          />
-
-          <Text style={styles.inputLabel}>
-            YOUR SELLING PRICE PER UNIT
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            value={sellingPrice}
-            onChangeText={setSellingPrice}
-            keyboardType="numeric"
-            placeholder="e.g. 3"
-            placeholderTextColor="#666670"
-          />
-
-          <Text style={styles.inputLabel}>
-            HOW LONG HAS IT BEEN IN STOCK?
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            value={stockAge}
-            onChangeText={setStockAge}
-            placeholder="e.g. 6 months"
-            placeholderTextColor="#666670"
-          />
-
-          <TouchableOpacity
-            style={[
-              styles.voiceButton,
-              recording && styles.voiceButtonRecording,
-            ]}
-            onPress={
-              recording
-                ? stopRecording
-                : startRecording
-            }
-          >
-            <Text style={styles.voiceButtonText}>
-              {recording
-                ? '⏹ STOP RECORDING'
-                : '🎤 SPEAK STOCK DETAILS'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => {
-              setListingCreated(true);
-            }}
-          >
-            <Text style={styles.primaryButtonText}>
-              CREATE LISTING
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -894,5 +1012,65 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+  },
+
+    scrollContent: {
+    flexGrow: 1,
+    paddingVertical: 25,
+  },
+
+  editButton: {
+    width: '100%',
+    backgroundColor: '#24202F',
+    borderWidth: 1,
+    borderColor: '#9B6DFF',
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+
+  editButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+    productHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  editIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+
+  editIcon: {
+    color: '#9B6DFF',
+    fontSize: 18,
+    marginRight: 4,
+  },
+
+  editText: {
+    color: '#9B6DFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  productEditInput: {
+    backgroundColor: '#0F0F14',
+    borderWidth: 1,
+    borderColor: '#9B6DFF',
+    borderRadius: 10,
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginTop: 8,
   },
 });
