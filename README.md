@@ -1,5 +1,4 @@
-# SETU — Dead Stock Exchange
-
+# SETU — Smart Exchange for Turning Unused Stock
 > Bridging surplus inventory with demand.
 
 ---
