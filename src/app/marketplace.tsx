@@ -1,14 +1,17 @@
 import * as Location from 'expo-location';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 type Listing = {
   id: string;
@@ -22,6 +25,9 @@ type Listing = {
   longitude: number;
   distance: string;
   image: string;
+  originalPrice?: string;
+  stockAge?: string;
+  confidence?: number;
 };
 
 const mockListings: Listing[] = [
@@ -316,53 +322,133 @@ export default function MarketplaceScreen() {
     useState<Location.LocationObject | null>(null);
 
   const [listings, setListings] =
-    useState<Listing[]>(mockListings);
+  useState<Listing[]>([]);
+
+  // Mirrors userLocation so it's readable inside loadListings without
+  // waiting on a state update (avoids a race with getUserLocation).
+  const userLocationRef = useRef<Location.LocationObject | null>(null);
 
   useEffect(() => {
-    getUserLocation();
-  }, []);
+  getUserLocation();
+}, []);
+
+  useFocusEffect(
+  useCallback(() => {
+    loadListings();
+  }, [])
+);
+
+  const loadListings = async () => {
+    console.log('MARKETPLACE API URL:', API_URL);
+    console.log('MARKETPLACE: loadListings CALLED');
+  try {
+    console.log('Loading listings from backend...');
+
+    const response = await fetch(`${API_URL}/listings`);
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    console.log('Backend listings:', data);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log('No seller listings yet. Showing demo listings.');
+      setListings(mockListings);
+      return;
+    }
+
+    const backendListings: Listing[] = data.map(
+      (item: any, index: number) => {
+        const latitude = Number(item.latitude) || 0;
+        const longitude = Number(item.longitude) || 0;
+
+        const loc = userLocationRef.current;
+
+        return {
+          id: item.id || `backend-${index}`,
+          product: item.product || 'Unknown Product',
+          category: item.category || 'Unknown',
+          quantity: Number(item.quantity) || 0,
+          sellingPrice: Number(item.sellingPrice) || 0,
+          condition: item.condition || 'Unknown',
+
+          location: item.location || 'Unknown location',
+          latitude,
+          longitude,
+
+          distance: loc
+            ? `${calculateDistance(
+                loc.coords.latitude,
+                loc.coords.longitude,
+                latitude,
+                longitude
+              ).toFixed(1)} km`
+            : '--',
+
+          image:
+            item.image ||
+            'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800',
+
+          originalPrice: item.originalPrice,
+          stockAge: item.stockAge,
+          confidence: item.confidence,
+        };
+      }
+    );
+
+    // Real backend listings always replace demo listings and are never
+    // hidden behind them.
+    setListings(backendListings);
+  } catch (error) {
+    console.log('Marketplace loading error:', error);
+    console.log('Backend unavailable. Showing demo listings.');
+    setListings(mockListings);
+  }
+};
 
   const getUserLocation = async () => {
-    try {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+  try {
+    const { status } =
+      await Location.requestForegroundPermissionsAsync();
 
-      if (status !== 'granted') {
-        setLocationStatus('Location permission denied');
-        return;
-      }
-
-      const location =
-        await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-      setUserLocation(location);
-
-      const updatedListings = mockListings.map(
-        (listing) => {
-          const distance = calculateDistance(
-            location.coords.latitude,
-            location.coords.longitude,
-            listing.latitude,
-            listing.longitude
-          );
-
-          return {
-            ...listing,
-            distance: `${distance.toFixed(1)} km`,
-          };
-        }
-      );
-
-      setListings(updatedListings);
-
-      setLocationStatus('Location detected');
-    } catch (error) {
-      console.log('Location error:', error);
-      setLocationStatus('Unable to get location');
+    if (status !== 'granted') {
+      setLocationStatus('Location permission denied');
+      return;
     }
-  };
+
+    const location =
+      await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+    userLocationRef.current = location;
+    setUserLocation(location);
+
+    setListings((currentListings) =>
+      currentListings.map((listing) => {
+        const distance = calculateDistance(
+          location.coords.latitude,
+          location.coords.longitude,
+          listing.latitude,
+          listing.longitude
+        );
+
+        return {
+          ...listing,
+          distance: `${distance.toFixed(1)} km`,
+        };
+      })
+    );
+
+    setLocationStatus('Location detected');
+  } catch (error) {
+    console.log('Location error:', error);
+    setLocationStatus('Unable to get location');
+  }
+};
 
   if (selectedListing) {
     return (

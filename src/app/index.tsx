@@ -6,8 +6,10 @@ import {
 } from 'expo-audio';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { File } from 'expo-file-system';
+import * as Location from 'expo-location';
+import { useRouter, useNavigation } from 'expo-router';
 import { fetch } from 'expo/fetch';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -40,9 +42,16 @@ type Listing = {
   originalPrice: string;
   sellingPrice: string;
   stockAge: string;
+  location?: string;
+  latitude?: number;
+  longitude?: number;
+  image?: string | null;
 };
 
 export default function HomeScreen() {
+  const router = useRouter();
+  const [role, setRole] = useState<'seller' | 'buyer' | null>(null);
+  
   const [permission, requestPermission] =
     useCameraPermissions();
 
@@ -73,6 +82,22 @@ export default function HomeScreen() {
   const [stockAge, setStockAge] = useState('');
 
   const [listingCreated, setListingCreated] = useState(false);
+
+    const navigation = useNavigation();
+
+  useEffect(() => {
+    navigation.getParent()?.setOptions({
+      tabBarStyle: role === 'seller'
+        ? { display: 'none' }
+        : undefined,
+    });
+
+    return () => {
+      navigation.getParent()?.setOptions({
+        tabBarStyle: undefined,
+      });
+    };
+  }, [role]);
 
   /*
    * START VOICE RECORDING
@@ -232,8 +257,20 @@ export default function HomeScreen() {
           facing="back"
         />
 
-        <View style={styles.cameraOverlay}>
-          <View style={styles.scanBox} />
+       <View style={styles.cameraOverlay}>
+
+      <TouchableOpacity
+        style={styles.cameraBackButton}
+        onPress={() => {
+          setShowCamera(false);
+        }}
+      >
+        <Text style={styles.cameraBackButtonText}>
+          ← BACK
+        </Text>
+      </TouchableOpacity>
+
+      <View style={styles.scanBox} />
 
           <Text style={styles.cameraText}>
             Place your product inside the box
@@ -439,23 +476,35 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => {
-            setListingCreated(false);
-            setDetected(false);
-            setProduct(null);
-            setPhotoUri(null);
-            setQuantity('1');
-            setOriginalPrice('');
-            setSellingPrice('');
-            setStockAge('');
-          }}
-        >
-          <Text style={styles.primaryButtonText}>
-            SCAN MORE STOCK
-          </Text>
-        </TouchableOpacity>
+          <View style={styles.successActions}>
+          <TouchableOpacity
+            style={styles.successPrimaryButton}
+            onPress={() => router.push('/marketplace')}
+          >
+            <Text style={styles.successPrimaryButtonText}>
+              VIEW LISTING
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.successSecondaryButton}
+            onPress={() => {
+              setListingCreated(false);
+              setDetected(false);
+              setProduct(null);
+              setPhotoUri(null);
+              setQuantity('1');
+              setOriginalPrice('');
+              setSellingPrice('');
+              setStockAge('');
+              setShowCamera(true);
+            }}
+          >
+            <Text style={styles.successSecondaryButtonText}>
+              CREATE ANOTHER LISTING
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -655,6 +704,50 @@ export default function HomeScreen() {
                   return;
                 }
 
+                const { status } =
+                  await Location.requestForegroundPermissionsAsync();
+
+                if (status !== 'granted') {
+                  Alert.alert(
+                    'Location Required',
+                    'Please allow location access so buyers can find nearby stock.'
+                  );
+                  return;
+                }
+
+                const location =
+                  await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                  });
+
+                let imageUrl: string | null = null;
+
+                if (photoUri) {
+                  const imageFormData = new FormData();
+
+                  const imageFile = new File(photoUri);
+
+                  imageFormData.append('photo', imageFile);
+
+                  const imageResponse = await fetch(
+                    `${API_URL}/upload-image`,
+                    {
+                      method: 'POST',
+                      body: imageFormData,
+                    }
+                  );
+
+                  const imageData = await imageResponse.json();
+
+                  if (!imageResponse.ok) {
+                    throw new Error(
+                      imageData.error || 'Image upload failed'
+                    );
+                  }
+
+                  imageUrl = `${API_URL}/uploads/${imageData.filename}`;
+                }
+
                 const newListing: Listing = {
                   product: product.product,
                   category: product.category,
@@ -664,6 +757,11 @@ export default function HomeScreen() {
                   originalPrice,
                   sellingPrice,
                   stockAge,
+
+                  location: 'Seller location',
+                  latitude: location.coords.latitude,
+                  longitude: location.coords.longitude,
+                  image: imageUrl,
                 };
 
                 try {
@@ -711,39 +809,82 @@ export default function HomeScreen() {
   /*
    * HOME
    */
+  if (role === null) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.logo}>
-          DEAD STOCK
+        <Text style={styles.setuLogo}>
+          SETU
         </Text>
 
-        <Text style={styles.logoAccent}>
-          EXCHANGE
-        </Text>
-
-        <Text style={styles.subtitle}>
-          Turn excess inventory into sales.
-        </Text>
-
-        <Text style={styles.description}>
-          Scan your unsold products and find
-          potential buyers.
+        <Text style={styles.setuTagline}>
+          Bridging Surplus Inventory with Demand
         </Text>
 
         <TouchableOpacity
-          style={styles.scanButton}
-          onPress={() => {
-            setShowCamera(true);
-          }}
+          style={styles.roleButton}
+          onPress={() => setRole('seller')}
         >
-          <Text style={styles.scanButtonText}>
-            📷 SCAN STOCK
+          <Text style={styles.roleButtonText}>
+            I AM A SELLER
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.roleButtonSecondary}
+          onPress={() => router.push('/marketplace')}
+        >
+          <Text style={styles.roleButtonSecondaryText}>
+            I AM A BUYER
           </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
+}
+
+return (
+  <View style={styles.container}>
+    <View style={styles.content}>
+      <Text style={styles.logo}>
+        DEAD STOCK
+      </Text>
+
+      <Text style={styles.logoAccent}>
+        EXCHANGE
+      </Text>
+
+      <Text style={styles.subtitle}>
+        Turn excess inventory into sales.
+      </Text>
+
+      <Text style={styles.description}>
+        Scan your unsold products and find
+        potential buyers.
+      </Text>
+
+      <TouchableOpacity
+  style={styles.scanButton}
+  onPress={() => {
+    setShowCamera(true);
+  }}
+>
+  <Text style={styles.scanButtonText}>
+    📷 SCAN STOCK
+  </Text>
+</TouchableOpacity>
+
+<TouchableOpacity
+  style={styles.sellerBackButton}
+  onPress={() => setRole(null)}
+>
+  <Text style={styles.sellerBackButtonText}>
+    ← GO BACK
+  </Text>
+</TouchableOpacity>
+  </View>
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
@@ -826,6 +967,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  cameraBackButton: {
+  position: 'absolute',
+  top: 55,
+  left: 20,
+  backgroundColor: 'rgba(0,0,0,0.65)',
+  borderWidth: 1,
+  borderColor: '#9B6DFF',
+  paddingVertical: 10,
+  paddingHorizontal: 16,
+  borderRadius: 12,
+  zIndex: 10,
+},
+
+  cameraBackButtonText: {
+  color: '#FFFFFF',
+  fontSize: 14,
+  fontWeight: '800',
+  letterSpacing: 0.5,
+},
 
   scanBox: {
     width: 280,
@@ -1093,6 +1254,44 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
+    successActions: {
+    width: '100%',
+    marginTop: 20,
+  },
+
+  successPrimaryButton: {
+    width: '100%',
+    backgroundColor: '#9B6DFF',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  successPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+
+  successSecondaryButton: {
+    width: '100%',
+    backgroundColor: '#24202F',
+    borderWidth: 1,
+    borderColor: '#9B6DFF',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+
+  successSecondaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
     productHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1129,4 +1328,70 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 8,
   },
+  setuLogo: {
+  color: '#FFFFFF',
+  fontSize: 48,
+  fontWeight: '900',
+  letterSpacing: 4,
+  marginBottom: 12,
+},
+
+setuTagline: {
+  color: '#A0A0A8',
+  fontSize: 16,
+  textAlign: 'center',
+  marginBottom: 55,
+},
+
+roleButton: {
+  width: '100%',
+  backgroundColor: '#9B6DFF',
+  paddingVertical: 18,
+  borderRadius: 16,
+  alignItems: 'center',
+  marginBottom: 14,
+},
+
+roleButtonText: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '800',
+  letterSpacing: 1,
+},
+
+roleButtonSecondary: {
+  width: '100%',
+  backgroundColor: '#17171D',
+  borderWidth: 1,
+  borderColor: '#9B6DFF',
+  paddingVertical: 18,
+  borderRadius: 16,
+  alignItems: 'center',
+},
+
+roleButtonSecondaryText: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '800',
+  letterSpacing: 1,
+},
+
+sellerBackButton: {
+  backgroundColor: '#17171D',
+  borderWidth: 1,
+  borderColor: '#9B6DFF',
+  paddingVertical: 11,
+  paddingHorizontal: 28,
+  borderRadius: 12,
+  alignItems: 'center',
+  marginTop: 14,
+},
+
+sellerBackButtonText: {
+  color: '#FFFFFF',
+  fontSize: 13,
+  fontWeight: '800',
+  letterSpacing: 0.5,
+},
+
 });

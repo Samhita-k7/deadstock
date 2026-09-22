@@ -48,8 +48,55 @@ app.get('/', (req, res) => {
 
 const listings = [];
 
+app.post('/upload-image', upload.single('photo'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      error: 'No image received',
+    });
+  }
+
+  console.log('Image uploaded:', req.file.filename);
+
+  res.json({
+    filename: req.file.filename,
+  });
+});
+
 app.post('/listings', (req, res) => {
-  const listing = req.body;
+  const {
+    product,
+    category,
+    condition,
+    confidence,
+    quantity,
+    originalPrice,
+    sellingPrice,
+    stockAge,
+    location,
+    latitude,
+    longitude,
+    image,
+  } = req.body;
+
+  const listing = {
+    id: `listing-${Date.now()}`,
+
+    product,
+    category,
+    condition,
+    confidence,
+
+    quantity,
+    originalPrice,
+    sellingPrice,
+    stockAge,
+
+    location: location || 'Unknown',
+    latitude: latitude ?? null,
+    longitude: longitude ?? null,
+
+    image: image || null,
+  };
 
   listings.push(listing);
 
@@ -80,7 +127,7 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
     const imageData = fs.readFileSync(req.file.path).toString('base64');
 
     const response = await generateWithRetry({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.6-flash',
 
       contents: [
         {
@@ -163,7 +210,7 @@ app.post('/voice-analyze', upload.single('audio'), async (req, res) => {
       .toString('base64');
 
     const response = await generateWithRetry({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.6-flash',
 
       contents: [
         {
