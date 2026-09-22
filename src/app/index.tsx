@@ -31,6 +31,17 @@ type ProductResult = {
   confidence: number;
 };
 
+type Listing = {
+  product: string;
+  category: string;
+  condition: string;
+  confidence: number;
+  quantity: string;
+  originalPrice: string;
+  sellingPrice: string;
+  stockAge: string;
+};
+
 export default function HomeScreen() {
   const [permission, requestPermission] =
     useCameraPermissions();
@@ -53,6 +64,7 @@ export default function HomeScreen() {
 
   const [product, setProduct] =
     useState<ProductResult | null>(null);
+  const [listing, setListing] = useState<Listing | null>(null);
   const [editingProduct, setEditingProduct] = useState(false);
 
   const [quantity, setQuantity] = useState('1');
@@ -638,8 +650,52 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={() => {
-                setListingCreated(true);
+              onPress={async () => {
+                if (!product) {
+                  return;
+                }
+
+                const newListing: Listing = {
+                  product: product.product,
+                  category: product.category,
+                  condition: product.condition,
+                  confidence: product.confidence,
+                  quantity,
+                  originalPrice,
+                  sellingPrice,
+                  stockAge,
+                };
+
+                try {
+                  const response = await fetch(
+                    `${API_URL}/listings`,
+                    {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify(newListing),
+                    }
+                  );
+                  console.log('Listing response status:', response.status);
+                  console.log('Listing response URL:', response.url);
+
+                  const data = await response.json();
+
+                  console.log(
+                    'Listing sent to backend:',
+                    data
+                  );
+
+                  setListing(newListing);
+                  setListingCreated(true);
+
+                } catch (error) {
+                  console.log(
+                    'Listing upload error:',
+                    error
+                  );
+                }
               }}
             >
               <Text style={styles.primaryButtonText}>

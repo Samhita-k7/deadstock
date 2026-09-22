@@ -46,6 +46,25 @@ app.get('/', (req, res) => {
   });
 });
 
+const listings = [];
+
+app.post('/listings', (req, res) => {
+  const listing = req.body;
+
+  listings.push(listing);
+
+  console.log('Listing received:', listing);
+
+  res.json({
+    success: true,
+    listing,
+  });
+});
+
+app.get('/listings', (req, res) => {
+  res.json(listings);
+});
+
 app.post('/analyze', upload.single('photo'), async (req, res) => {
   console.log('Photo received:', req.file?.originalname);
 
