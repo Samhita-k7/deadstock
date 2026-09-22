@@ -177,7 +177,11 @@ MAP + DISTANCE
    ↓
 NEARBY SUPPLY ↔ DEMAND
 ```
+## 🔑 Google Maps Configuration
 
+The Google Maps API key is intentionally not included in this repository.
+
+Before building the Android app, replace `YOUR_GOOGLE_MAPS_API_KEY` in `app.json` with your own restricted Google Maps API key.
 ---
 
 ## ✨ Key Features
